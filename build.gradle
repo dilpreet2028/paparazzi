@@ -58,6 +58,12 @@ buildscript {
   ]
 
   repositories {
+    maven {
+      url project.findProperty("PAPARAZZI_MAVEN_REPOSITORY_URL")
+      content {
+        includeGroup 'app.cash.paparazzi'
+      }
+    }
     mavenCentral()
     google()
     jcenter()
@@ -75,6 +81,12 @@ buildscript {
 
 subprojects {
   repositories {
+    maven {
+      url project.findProperty("PAPARAZZI_MAVEN_REPOSITORY_URL")
+      content {
+        includeGroup 'app.cash.paparazzi'
+      }
+    }
     mavenCentral()
     google()
     jcenter()
