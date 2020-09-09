@@ -30,7 +30,9 @@ import org.gradle.api.Project
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFile
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.util.VersionNumber
@@ -40,19 +42,19 @@ import javax.inject.Inject
 open class PrepareResourcesTask(private val renderer: PaparazziRenderer) : DefaultTask() {
   @Inject
   constructor(): this(renderer = PaparazziRenderer.Library)
-  // Replace with @InputDirectory once mergeResourcesProvider.outputDir is of type Provider<File>.
 
   internal lateinit var variant: BaseVariant
     @Internal get
 
+  // Replace with @InputDirectory once mergeResourcesProvider.outputDir is of type Provider<File>.
   internal lateinit var mergeResourcesProvider: TaskProvider<MergeResources>
     @Internal get
 
   internal var outputResourcesFile: Provider<RegularFile> = project.objects.fileProperty()
-    @Internal get
+    @OutputFile get
 
   internal var overwriteGoldenMedia = false
-    @Internal get
+    @Input get
 
   protected open fun generateEnvironment() = Environment(
           renderer = renderer,
@@ -80,11 +82,11 @@ open class PrepareResourcesTask(private val renderer: PaparazziRenderer) : Defau
 
   protected open val assetsFolder: String
     //TODO: This value needs to be taken from the variant
-    @Internal get() = "${project.projectDir.absolutePath}/src/main/assets/"
+    @Input get() = "${project.projectDir.absolutePath}/src/main/assets/"
 
 
   protected open val resourcesFolder: String
-    @Internal get() = mergeResourcesProvider.get().outputDirAsFile().absolutePath
+    @Input get() = mergeResourcesProvider.get().outputDirAsFile().absolutePath
 
   companion object {
     const val DEFAULT_COMPILE_SDK_VERSION = 28
@@ -96,10 +98,10 @@ open class PrepareResourcesTask(private val renderer: PaparazziRenderer) : Defau
       @Internal get
 
     override val resourcesFolder: String
-      get() = "${outputResourcesFile.get().asFile.parentFile.absolutePath}/apk_dump/res"
+      @Input get() = "${outputResourcesFile.get().asFile.parentFile.absolutePath}/apk_dump/res"
 
     override val assetsFolder: String
-      get() = "${outputResourcesFile.get().asFile.parentFile.absolutePath}/apk_dump/assets"
+      @Input get() = "${outputResourcesFile.get().asFile.parentFile.absolutePath}/apk_dump/assets"
 
     override fun generateEnvironment(): Environment {
       val outputs = apkProvider.get()
