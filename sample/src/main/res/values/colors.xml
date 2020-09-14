@@ -5,4 +5,7 @@
   <color name="keypadDarkGrey">#595959</color>
   <color name="launchBackground">#dcdccc</color>
   <color name="cameraBody">#332F21</color>
+  <color name="cameraBodyLow">#322</color>
+  <color name="cameraBodyLowAlpha">#a322</color>
+  <color name="cameraBodyAlpha">#ab332221</color>
 </resources>
