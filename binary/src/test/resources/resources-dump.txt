@@ -53,22 +53,22 @@
 - resource @+id/amount 0x7f030000:
     * configuration default:
       located under res/values/ids.xml
-        value false
+        value @+id/amount
 
 - resource @+id/amount0 0x7f030001:
     * configuration default:
       located under res/values/ids.xml
-        value false
+        value @+id/amount0
 
 - resource @+id/amount123 0x7f030002:
     * configuration default:
       located under res/values/ids.xml
-        value false
+        value @+id/amount123
 
 - resource @+id/amount789 0x7f030003:
     * configuration default:
       located under res/values/ids.xml
-        value false
+        value @+id/amount789
 
 - resource @layout/keypad 0x7f040000:
     * configuration default:

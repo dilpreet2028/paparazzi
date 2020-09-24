@@ -7,20 +7,23 @@ class ParsersTests {
     @Test
     fun testHappyPathEntireResourcesList() {
         val parsedResources = ParsersTests::class.java.classLoader.getResourceAsStream("resources.arsc")?.use {
-            parseResourcesArsc(it).entries.joinToString(separator = System.lineSeparator()) { (id, valuesMap) ->
-                StringBuilder("- resource ")
-                        .append(id.resourceString).append(" ")
-                        .append("0x").append(id.id.toString(16))
-                        .appendLine(":").also { builder ->
-                            valuesMap.entries.forEach {
-                                builder.append("    * ").append("configuration ").append(it.key).appendLine(":")
-                                builder.append("      located under ").appendLine(it.value.resourceFilePath())
-                                if (!it.value.isEncodedFileResource()) {
-                                    builder.append("        value ").appendLine(it.value.toDataString())
-                                }
-                            }
+            parseResourcesArsc(it)
+                    .let { arsc ->
+                        arsc.resourcesMap.entries.joinToString(separator = System.lineSeparator()) { (id, valuesMap) ->
+                            StringBuilder("- resource ")
+                                    .append(id.resourceString).append(" ")
+                                    .append("0x").append(id.id.toString(16))
+                                    .appendLine(":").also { builder ->
+                                        valuesMap.entries.forEach {
+                                            builder.append("    * ").append("configuration ").append(it.key).appendLine(":")
+                                            builder.append("      located under ").appendLine(it.value.resourceFilePath())
+                                            if (!it.value.isCompressedFile()) {
+                                                builder.append("        value ").appendLine(it.value.value().toXmlRepresentation(it.value, arsc))
+                                            }
+                                        }
+                                    }
                         }
-            }
+                    }
         } ?: error("resources.arsc was not found")
 
         val expect = ParsersTests::class.java.classLoader.getResourceAsStream("resources-dump.txt")?.use {
@@ -33,12 +36,14 @@ class ParsersTests {
     @Test
     fun testHappyPathValues() {
         val dumpedFileContents = ParsersTests::class.java.classLoader.getResourceAsStream("resources.arsc")?.use {
-            valuesDump(encodedValues(parseResourcesArsc(it))).entries.joinToString(separator = System.lineSeparator()) { (path, fileContent) ->
-                StringBuilder("path ").append(path)
-                        .appendLine(":")
-                        .append(fileContent)
+            parseResourcesArsc(it)
+                    .let { arsc -> valuesDump(arsc, encodedValues(arsc.resourcesMap)) }
+                    .entries.joinToString(separator = System.lineSeparator()) { (path, fileContent) ->
+                        StringBuilder("path ").append(path)
+                                .appendLine(":")
+                                .append(fileContent)
 
-            }
+                    }
         } ?: error("resources.arsc was not found")
 
         val expect = ParsersTests::class.java.classLoader.getResourceAsStream("values-dump.txt")?.use {
@@ -46,19 +51,6 @@ class ParsersTests {
         }
 
         Assert.assertEquals(expect, dumpedFileContents)
-    }
-
-    @Test
-    fun testHappyPathPhysicalFiles() {
-        val paths = ParsersTests::class.java.classLoader.getResourceAsStream("resources.arsc")?.use {
-            physicalFilesPaths(parseResourcesArsc(it)).joinToString(separator = System.lineSeparator())
-        } ?: error("resources.arsc was not found")
-
-        val expect = ParsersTests::class.java.classLoader.getResourceAsStream("physical-files-dump.txt")?.use {
-            it.reader().readText()
-        }
-
-        Assert.assertEquals(expect, paths)
     }
 
     @Test

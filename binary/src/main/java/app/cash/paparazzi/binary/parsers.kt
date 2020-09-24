@@ -23,12 +23,23 @@ import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 
-
 data class ResourceIdentifier(val id: Int, val type: String, val name: String) {
-    val resourceString = "@${if (type == "id") "+id" else type}/${name}"
+    val resourceString = StringBuilder().apply {
+        when (type) {
+            "attr" -> append("?")
+            "id" -> append("@+")
+            else -> append("@")
+        }.append(type).append("/").append(name)
+    }.toString()
 }
 
-fun parseResourcesArsc(inputStream: InputStream): Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>> {
+data class ResourceArcs(val resourcesChunk: ResourceTableChunk, val resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>) {
+    fun getResId(id: Int): ResourceIdentifier? {
+        return resourcesMap.keys.find { it.id == id }
+    }
+}
+
+fun parseResourcesArsc(inputStream: InputStream): ResourceArcs {
     val tableChunk = BinaryResourceFile.fromInputStream(inputStream).chunks.single() as ResourceTableChunk
     val packageChunk = tableChunk.packages.single() as PackageChunk
 
@@ -41,27 +52,18 @@ fun parseResourcesArsc(inputStream: InputStream): Map<ResourceIdentifier, Map<Bi
         }
     }
 
-    return allResources
+    return ResourceArcs(tableChunk, allResources)
 }
 
 fun encodedValues(resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>): Map<Path, List<TypeChunk.Entry>> =
-    resourcesMap
-            .map { it.value }
-            .flatMap { it.values }
-            .filter { !it.isEncodedFileResource() }
-            .groupBy { it.resourceFilePath() }
-            .mapKeys { Paths.get(it.key) }
+        resourcesMap
+                .map { it.value }
+                .flatMap { it.values }
+                .filter { !it.isCompressedFile() }
+                .groupBy { it.resourceFilePath() }
+                .mapKeys { Paths.get(it.key) }
 
-fun physicalFilesPaths(resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>): List<Path> =
-    resourcesMap
-            .map { it.value }
-            .flatMap { it.values }
-            .filter { it.isEncodedFileResource() }
-            .map { it.resourceFilePath() }
-            .map { Paths.get(it) }
-            .toList()
-
-fun valuesDump(values: Map<Path, List<TypeChunk.Entry>>): Map<Path, String> {
+fun valuesDump(resourceArcs: ResourceArcs, values: Map<Path, List<TypeChunk.Entry>>): Map<Path, String> {
     return values.map {
         it.key to it.value.let { entries ->
             StringBuilder("<?xml version=\"1.0\" encoding=\"utf-8\"?>").appendLine()
@@ -70,10 +72,33 @@ fun valuesDump(values: Map<Path, List<TypeChunk.Entry>>): Map<Path, String> {
                     .also { builder ->
                         entries.forEach { entry ->
                             builder.append("    <item type=\"").append(entry.typeName()).append("\" name=\"").append(entry.key()).append("\"")
-                            if (entry.typeName() == "id" && entry.toDataString() == "false"/*which means the ID was not hard coded.*/) {
-                                builder.append("/>")
+                            if (entry.parentEntry() != 0) {
+                                builder.append(" parent=\"").append(resourceArcs.getResId(entry.parentEntry())?.name ?: "").append("\"")
+                            }
+                            if (entry.isComplex) {
+                                builder.append(">")
+                                entry.values().entries.onEach { (keyValue, binaryValue) ->
+                                    builder.append("        <inner")
+                                            .append(" refNameRaw=").append(keyValue)
+                                            .append(" nameRefGroup=").append(keyValue.shr(24).and(0x000000ff).toString(16))
+                                            .append(" refName=").append(keyValue.and(0x0000ffff))
+                                            .append(" refNameAsGlobalString=").append(resourceArcs.resourcesChunk.stringPool.getString(keyValue.and(0x0000ffff)))
+                                            .append(" refNameAsLocalKey=").append(entry.parent().packageChunk!!.keyStringPool.getString(keyValue.and(0x0000ffff)))
+                                            //.append(" refNameAsLocalType=").append(entry.parent().packageChunk!!.typeStringPool.getString(keyValue.and(0x0000ffff)))
+                                            .append(" data=").append(binaryValue.data())
+                                            .append(" size=").append(binaryValue.size())
+                                            .append(" toXmlRepresentation=").append(binaryValue.toXmlRepresentation(resourceArcs))
+                                            .append("/>")
+                                }
+                                builder.append("</item>")
                             } else {
-                                builder.append(">").append(entry.toDataString()).append("</item>")
+                                if (entry.typeName() == "id") {
+                                    builder.append("/>")
+                                } else {
+                                    builder.append(">")
+                                            .append(entry.value().toXmlRepresentation(entry, resourceArcs))
+                                            .append("</item>")
+                                }
                             }
                             builder.appendLine()
                         }
@@ -133,14 +158,10 @@ private fun Chunk.getResourceTableChunk(): ResourceTableChunk {
     return chunk as ResourceTableChunk
 }
 
-/**
- * Path location where the data of this entry is located.
- * Either a path to a file, (if isEncodedFileResource() returns true), or path to a `values.xml`
- *
- */
 internal fun TypeChunk.Entry.resourceFilePath(): String {
-    return if (isEncodedFileResource()) {
-        toDataString()
+    return if (isCompressedFile()) {
+        //the path to a compressed resource file is a string in the string-pool
+        parent().getResourceTableChunk().stringPool.getString(value()!!.data())
     } else {
         val pathBuilder = StringBuilder("res/")
         pathBuilder.append("values")/*those are always under the 'values' folder*/
@@ -157,39 +178,25 @@ internal fun TypeChunk.Entry.resourceFilePath(): String {
     }
 }
 
-internal fun TypeChunk.Entry.isEncodedFileResource(): Boolean {
-    return when (val type = value()?.type()) {
-        /*all these cases are encoded inside the resources file*/
-        BinaryResourceValue.Type.NULL,
-        BinaryResourceValue.Type.REFERENCE,
-        BinaryResourceValue.Type.ATTRIBUTE,
-        BinaryResourceValue.Type.FLOAT,
-        BinaryResourceValue.Type.DIMENSION,
-        BinaryResourceValue.Type.FRACTION,
-        BinaryResourceValue.Type.INT_DEC,
-        BinaryResourceValue.Type.INT_HEX,
-        BinaryResourceValue.Type.INT_BOOLEAN,
-        BinaryResourceValue.Type.INT_COLOR_ARGB8,
-        BinaryResourceValue.Type.INT_COLOR_RGB8,
-        BinaryResourceValue.Type.INT_COLOR_ARGB4,
-        BinaryResourceValue.Type.INT_COLOR_RGB4 -> false
-        BinaryResourceValue.Type.STRING -> when (this.typeName()) {
-            "string" -> false /*the mapping is encoded inside the resources file*/
-            else -> true /*points to the location in the APK.*/
-        }
-        BinaryResourceValue.Type.DYNAMIC_REFERENCE -> TODO(type.name)
-        BinaryResourceValue.Type.DYNAMIC_ATTRIBUTE -> TODO(type.name)
-        null -> error("This should not happen.")
-    }
+internal fun TypeChunk.Entry.isCompressedFile(): Boolean {
+    //if the type name is not a string, but the value type is a string
+    //it means that value is pointing to a compress file inside the APK.
+    return typeName() != "string" && BinaryResourceValue.Type.STRING == value()?.type()
 }
 
 private val RADIX_MULTS = floatArrayOf(0.00390625f, 3.0517578E-5f, 1.1920929E-7f, 4.656613E-10f)
 
-private fun BinaryResourceValue.toXmlRepresentation(): String {
+internal fun BinaryResourceValue.toXmlRepresentation(resourceArcs: ResourceArcs): String {
     return when (type()) {
-        BinaryResourceValue.Type.NULL -> "@null"
         BinaryResourceValue.Type.REFERENCE,
-        BinaryResourceValue.Type.ATTRIBUTE -> "resourceId:0x${data().toString(16)}"
+        BinaryResourceValue.Type.ATTRIBUTE -> resourceArcs.getResId(data())?.resourceString
+                ?: "null ${data()}"
+        BinaryResourceValue.Type.NULL -> "@null"
+        BinaryResourceValue.Type.STRING -> if (data() < 0) {
+            "@null"
+        } else {
+            resourceArcs.resourcesChunk.stringPool.getString(data())
+        }
         BinaryResourceValue.Type.FLOAT -> Float.fromBits(data()).toString()
         BinaryResourceValue.Type.DIMENSION -> data().let {
             //conversion of complexToFloat was taken from android.util.TypedValue.complexToFloat
@@ -204,7 +211,8 @@ private fun BinaryResourceValue.toXmlRepresentation(): String {
             }
         }
         BinaryResourceValue.Type.FRACTION -> data().let {
-            "${Float.fromBits(it)}${if (it.and(0xf) == 0) "%" else "%p"}"
+            val numberValue = (data().and(-256)) * RADIX_MULTS[data().shr(4).and(3)]
+            "${numberValue * 100}${if (it.and(0xf) == 0) "%" else "%p"}"
         }
 
         BinaryResourceValue.Type.INT_DEC -> data().toString()
@@ -214,33 +222,24 @@ private fun BinaryResourceValue.toXmlRepresentation(): String {
         BinaryResourceValue.Type.INT_COLOR_ARGB4 -> String.format("#%04x", data())
         BinaryResourceValue.Type.INT_COLOR_RGB8 -> String.format("#%06x", data())
         BinaryResourceValue.Type.INT_COLOR_RGB4 -> String.format("#%03x", data())
-        else -> error("Not supporting ${type()} just yet.")
+        else -> error("Not supporting ${type()} just yet. Or maybe you need to call toXmlRepresentation(parent).")
     }
 }
 
-internal fun TypeChunk.Entry.toDataString(): String {
-    if (isComplex) {
-        error("Not supporting this right now")
-    } else {
-        return value()!!.let {
-            if (it.type() == BinaryResourceValue.Type.STRING) {
-                if (it.data() < 0) {
-                    "@null"
-                } else {
-                    parent().getResourceTableChunk().stringPool.getString(it.data())
-                }
-            } else {
-                it.toXmlRepresentation()
+internal fun BinaryResourceValue?.toXmlRepresentation(parent: TypeChunk.Entry, resourceArcs: ResourceArcs): String {
+    return when (parent.typeName()) {
+        "attr" -> "?attr/${parent.key()}"
+        "id" -> "@+id/${parent.key()}"
+        else -> {
+            when (this?.type()) {
+                null -> "@${parent.typeName()}/${parent.key()}"
+                else -> toXmlRepresentation(resourceArcs)
             }
         }
     }
 }
 
-private fun Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>.getByResId(id: Int): ResourceIdentifier? {
-    return this.keys.find { it.id == id }
-}
-
-fun parseXmlFile(inputStream: InputStream, resources: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>): String {
+fun parseXmlFile(inputStream: InputStream, resources: ResourceArcs): String {
     //taken from https://github.com/JakeWharton/diffuse/blob/96f9e42952f0bb343d627a08d55c037cd9bb9d77/diffuse/src/main/kotlin/com/jakewharton/diffuse/Manifest.kt#L64
     val rootChunk = BinaryResourceFile.fromInputStream(inputStream).chunks.single() as XmlChunk
     val document = DocumentBuilderFactory.newInstance()!!.apply { isNamespaceAware = true }
@@ -274,9 +273,10 @@ fun parseXmlFile(inputStream: InputStream, resources: Map<ResourceIdentifier, Ma
                     val typedValue = attribute.typedValue()
                     val attributeValue = when (typedValue.type()) {
                         BinaryResourceValue.Type.STRING -> attribute.rawValue()
-                        BinaryResourceValue.Type.REFERENCE -> resources.getByResId(typedValue.data())?.resourceString
+                        BinaryResourceValue.Type.ATTRIBUTE,
+                        BinaryResourceValue.Type.REFERENCE -> resources.getResId(typedValue.data())?.resourceString
                                 ?: attribute.rawValue()
-                        else -> typedValue.toXmlRepresentation()
+                        else -> typedValue.toXmlRepresentation(resources)
                     }
 
                     element.setAttributeNS(attributeNamespace, attributeName, attributeValue)
