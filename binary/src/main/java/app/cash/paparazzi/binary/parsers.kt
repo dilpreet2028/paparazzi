@@ -24,13 +24,16 @@ import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 
 data class ResourceIdentifier(val id: Int, val type: String, val name: String) {
-    val resourceString = StringBuilder().apply {
-        when (type) {
-            "attr" -> append("?")
-            "id" -> append("@+")
-            else -> append("@")
-        }.append(type).append("/").append(name)
-    }.toString()
+    val resourceString = if (id == 0)
+        "@null"
+    else
+        StringBuilder().apply {
+            when (type) {
+                "attr" -> append("?")
+                "id" -> append("@+")
+                else -> append("@")
+            }.append(type).append("/").append(name)
+        }.toString()
 }
 
 data class ResourceArcs(val resourcesChunk: ResourceTableChunk, val resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>) {
@@ -51,6 +54,8 @@ fun parseResourcesArsc(inputStream: InputStream): ResourceArcs {
             allResources.getOrPut(ResourceIdentifier(resId, typeChunk.typeName, it.value.key())) { mutableMapOf() }[typeChunk.configuration] = it.value
         }
     }
+
+    allResources[ResourceIdentifier(0, "", "")] = mutableMapOf()
 
     return ResourceArcs(tableChunk, allResources)
 }
@@ -80,15 +85,16 @@ private const val COMPLEX_ENTRY_FLAG_BIT = 1.shl(17)
 private fun appendComplexEntityStyle(builder: StringBuilder, entry: TypeChunk.Entry, resourceArcs: ResourceArcs) {
     builder.indent().append("<style name=").appendWithQuotes(entry.key())
     if (entry.parentEntry() != 0) {
-        builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.name ?: "")
+        builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.name
+                ?: "resourceId:${entry.parentEntry()}")
     }
     builder.appendLine(">")
 
     entry.values().forEach { (mapKey, binaryValue) ->
-        builder.indent(2).appendLine("<child mapKey=").appendWithQuotes(mapKey.toString())
-                .append(" type=").appendWithQuotes(binaryValue.type().toString())
-                .append(" data=").appendWithQuotes(binaryValue.data().toString())
-                .append(">").append(binaryValue.toXmlRepresentation(entry, resourceArcs)).appendLine("</child>")
+        builder.indent(2)
+                .append("<item name=").appendWithQuotes(resourceArcs.getResId(mapKey)?.name
+                        ?: "resourceId:$mapKey").append(">")
+                .append(binaryValue.toXmlRepresentation(entry, resourceArcs)).appendLine("</item>")
     }
 
     builder.indent().appendLine("</style>")
@@ -130,8 +136,8 @@ private fun appendComplexEntityAttribute(builder: StringBuilder, entry: TypeChun
 
     entry.values().forEach { (mapKey, binaryValue) ->
         when {
-            mapKey.and(COMPLEX_ENTRY_ENUM_BIT) != 0 -> children.add("<enum name=\"${resourceArcs.getResId(mapKey)?.name}\" value=\"${binaryValue.data()}\"/>")
-            mapKey.and(COMPLEX_ENTRY_FLAG_BIT) != 0 -> children.add("<flag name=\"${resourceArcs.getResId(mapKey)?.name}\" value=\"${binaryValue.data()}\"/>")
+            mapKey.and(COMPLEX_ENTRY_ENUM_BIT) != 0 -> children.add("<enum name=\"${resourceArcs.getResId(mapKey)?.name ?: "resourceId:$mapKey"}\" value=\"${binaryValue.data()}\"/>")
+            mapKey.and(COMPLEX_ENTRY_FLAG_BIT) != 0 -> children.add("<flag name=\"${resourceArcs.getResId(mapKey)?.name ?: "resourceId:$mapKey"}\" value=\"${binaryValue.data()}\"/>")
             else -> {
                 val attrType = binaryValue.data()
                 if (attrType.and(COMPLEX_ENTRY_TYPE_ANY_BIT) != COMPLEX_ENTRY_TYPE_ANY_BIT) {
@@ -289,7 +295,7 @@ internal fun BinaryResourceValue.toXmlRepresentation(resourceArcs: ResourceArcs)
     return when (type()) {
         BinaryResourceValue.Type.REFERENCE,
         BinaryResourceValue.Type.ATTRIBUTE -> resourceArcs.getResId(data())?.resourceString
-                ?: "null ${data()}"
+                ?: "resourceId:${data()}"
         BinaryResourceValue.Type.NULL -> "@null"
         BinaryResourceValue.Type.STRING -> if (data() < 0) {
             "@null"
