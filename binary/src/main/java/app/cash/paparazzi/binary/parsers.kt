@@ -63,6 +63,91 @@ fun encodedValues(resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfig
                 .groupBy { it.resourceFilePath() }
                 .mapKeys { Paths.get(it.key) }
 
+private const val COMPLEX_ENTRY_TYPE_ANY_BIT = 0x0000ffff
+private const val COMPLEX_ENTRY_TYPE_REFERENCE_BIT = 1.shl(0)
+private const val COMPLEX_ENTRY_TYPE_STRING_BIT = 1.shl(1)
+private const val COMPLEX_ENTRY_TYPE_INTEGER_BIT = 1.shl(2)
+private const val COMPLEX_ENTRY_TYPE_BOOLEAN_BIT = 1.shl(3)
+private const val COMPLEX_ENTRY_TYPE_COLOR_BIT = 1.shl(4)
+private const val COMPLEX_ENTRY_TYPE_FLOAT_BIT = 1.shl(5)
+private const val COMPLEX_ENTRY_TYPE_DIMENSION_BIT = 1.shl(6)
+private const val COMPLEX_ENTRY_TYPE_FRACTION_BIT = 1.shl(7)
+
+private const val COMPLEX_ENTRY_ENUM_BIT = 1.shl(16)
+private const val COMPLEX_ENTRY_FLAG_BIT = 1.shl(17)
+
+private fun appendComplexEntityStyle(builder: StringBuilder, entry: TypeChunk.Entry, resourceArcs: ResourceArcs) {
+    builder.indent().append("<style name=").appendWithQuotes(entry.key())
+    if (entry.parentEntry() != 0) {
+        builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.name ?: "")
+    }
+    builder.appendLine(">")
+
+    entry.values().forEach { (mapKey, binaryValue) ->
+        builder.indent(2).appendLine("<child mapKey=").appendWithQuotes(mapKey.toString())
+                .append(" type=").appendWithQuotes(binaryValue.type().toString())
+                .append(" data=").appendWithQuotes(binaryValue.data().toString())
+                .append(">").append(binaryValue.toXmlRepresentation(entry, resourceArcs)).appendLine("</child>")
+    }
+
+    builder.indent().appendLine("</style>")
+}
+
+private fun appendComplexEntityPlurals(builder: StringBuilder, entry: TypeChunk.Entry, resourceArcs: ResourceArcs) {
+    builder.indent().append("<plurals name=").appendWithQuotes(entry.key()).appendLine(">")
+    entry.values().forEach { (mapKey, binaryValue) ->
+        builder.indent(2).appendLine("<child mapKey=").appendWithQuotes(mapKey.toString())
+                .append(" type=").appendWithQuotes(binaryValue.type().toString())
+                .append(" data=").appendWithQuotes(binaryValue.data().toString())
+                .append(">").append(binaryValue.toXmlRepresentation(entry, resourceArcs)).appendLine("</child>")
+    }
+
+    builder.indent().appendLine("</plurals>")
+}
+
+private fun appendComplexEntityAttribute(builder: StringBuilder, entry: TypeChunk.Entry, resourceArcs: ResourceArcs) {
+    //attribute can be either a flag, an enum or some format.
+    builder.indent().append("<attr name=").appendWithQuotes(entry.key())
+    val formats = mutableSetOf<String>()
+    val children = mutableListOf<String>()
+
+    entry.values().forEach { (mapKey, binaryValue) ->
+        when {
+            mapKey.and(COMPLEX_ENTRY_ENUM_BIT) != 0 -> children.add("<enum name=\"${resourceArcs.getResId(mapKey)?.name}\" value=\"${binaryValue.data()}\"/>")
+            mapKey.and(COMPLEX_ENTRY_FLAG_BIT) != 0 -> children.add("<flag name=\"${resourceArcs.getResId(mapKey)?.name}\" value=\"${binaryValue.data()}\"/>")
+            else -> {
+                val attrType = binaryValue.data()
+                if (attrType.and(COMPLEX_ENTRY_TYPE_ANY_BIT) != COMPLEX_ENTRY_TYPE_ANY_BIT) {
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_REFERENCE_BIT) != 0) formats.add("reference")
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_STRING_BIT) != 0) formats.add("string")
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_INTEGER_BIT) != 0) formats.add("integer")
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_BOOLEAN_BIT) != 0) formats.add("boolean")
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_COLOR_BIT) != 0) formats.add("color")
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_FLOAT_BIT) != 0) formats.add("float")
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_DIMENSION_BIT) != 0) formats.add("dimension")
+                    if (attrType.and(COMPLEX_ENTRY_TYPE_FRACTION_BIT) != 0) formats.add("fraction")
+                }
+            }
+        }
+    }
+
+    if (formats.isNotEmpty()) {
+        builder.append(" format=").appendWithQuotes(formats.joinToString("|"))
+    }
+    if (children.isEmpty()) {
+        builder.appendLine("/>")
+    } else {
+        builder.appendLine(">")
+        children.forEach { builder.indent(2).appendLine(it) }
+        builder.indent().appendLine("</attr>")
+    }
+
+}
+
+private fun StringBuilder.indent(times: Int = 1) = also { repeat(times) { this.append("    ") } }
+
+private fun StringBuilder.appendWithQuotes(text: String) = this.append("\"").append(text).append("\"")
+
 fun valuesDump(resourceArcs: ResourceArcs, values: Map<Path, List<TypeChunk.Entry>>): Map<Path, String> {
     return values.map {
         it.key to it.value.let { entries ->
@@ -71,36 +156,34 @@ fun valuesDump(resourceArcs: ResourceArcs, values: Map<Path, List<TypeChunk.Entr
                     //<item type="[type name]" name="[resource name]">[resource value]</item>
                     .also { builder ->
                         entries.forEach { entry ->
-                            builder.append("    <item type=\"").append(entry.typeName()).append("\" name=\"").append(entry.key()).append("\"")
-                            if (entry.parentEntry() != 0) {
-                                builder.append(" parent=\"").append(resourceArcs.getResId(entry.parentEntry())?.name ?: "").append("\"")
-                            }
                             if (entry.isComplex) {
-                                builder.append(">")
-                                entry.values().entries.onEach { (keyValue, binaryValue) ->
-                                    builder.append("        <inner")
-                                            .append(" refNameRaw=").append(keyValue)
-                                            .append(" nameRefGroup=").append(keyValue.shr(24).and(0x000000ff).toString(16))
-                                            .append(" refName=").append(keyValue.and(0x0000ffff))
-                                            .append(" refNameAsGlobalString=").append(resourceArcs.resourcesChunk.stringPool.getString(keyValue.and(0x0000ffff)))
-                                            .append(" refNameAsLocalKey=").append(entry.parent().packageChunk!!.keyStringPool.getString(keyValue.and(0x0000ffff)))
-                                            //.append(" refNameAsLocalType=").append(entry.parent().packageChunk!!.typeStringPool.getString(keyValue.and(0x0000ffff)))
-                                            .append(" data=").append(binaryValue.data())
-                                            .append(" size=").append(binaryValue.size())
-                                            .append(" toXmlRepresentation=").append(binaryValue.toXmlRepresentation(resourceArcs))
-                                            .append("/>")
+                                //complex entries are such that can not be mapped to key-type-value directly.
+                                //think, styles, plurals or attributes
+                                when (entry.typeName()) {
+                                    "attr" -> appendComplexEntityAttribute(builder, entry, resourceArcs)
+                                    "style" -> appendComplexEntityStyle(builder, entry, resourceArcs)
+                                    "plurals" -> appendComplexEntityPlurals(builder, entry, resourceArcs)
+                                    else -> error("complex type ${entry.typeName()} is not supported yet.")
                                 }
-                                builder.append("</item>")
                             } else {
+                                //this is something that directly mapped to key-type-value
+                                builder.indent()
+                                        .append("<item type=").appendWithQuotes(entry.typeName())
+                                        .append(" name=").appendWithQuotes(entry.key())
                                 if (entry.typeName() == "id") {
-                                    builder.append("/>")
+                                    builder.appendLine("/>")
                                 } else {
                                     builder.append(">")
                                             .append(entry.value().toXmlRepresentation(entry, resourceArcs))
-                                            .append("</item>")
+                                            .appendLine("</item>")
+                                }
+                                if (entry.parentEntry() != 0) {
+                                    builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.name
+                                            ?: "")
+
                                 }
                             }
-                            builder.appendLine()
+
                         }
                     }
                     .appendLine("</resources>")
