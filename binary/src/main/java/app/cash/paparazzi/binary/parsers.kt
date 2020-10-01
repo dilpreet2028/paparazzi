@@ -63,6 +63,7 @@ fun encodedValues(resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfig
                 .groupBy { it.resourceFilePath() }
                 .mapKeys { Paths.get(it.key) }
 
+/* These are used for ATTRIBUTE complex entity*/
 private const val COMPLEX_ENTRY_TYPE_ANY_BIT = 0x0000ffff
 private const val COMPLEX_ENTRY_TYPE_REFERENCE_BIT = 1.shl(0)
 private const val COMPLEX_ENTRY_TYPE_STRING_BIT = 1.shl(1)
@@ -93,13 +94,29 @@ private fun appendComplexEntityStyle(builder: StringBuilder, entry: TypeChunk.En
     builder.indent().appendLine("</style>")
 }
 
+/* These are for plurals complex entity. https://github.com/aosp-mirror/platform_frameworks_base/blob/master/libs/androidfw/include/androidfw/ResourceTypes.h#L1528*/
+private const val COMPLEX_ENTRY_PLURALS_TYPE_OTHER = 0x01000000.or(4.and(0xffff))
+private const val COMPLEX_ENTRY_PLURALS_TYPE_ZERO = 0x01000000.or(5.and(0xffff))
+private const val COMPLEX_ENTRY_PLURALS_TYPE_ONE = 0x01000000.or(6.and(0xffff))
+private const val COMPLEX_ENTRY_PLURALS_TYPE_TWO = 0x01000000.or(7.and(0xffff))
+private const val COMPLEX_ENTRY_PLURALS_TYPE_FEW = 0x01000000.or(8.and(0xffff))
+private const val COMPLEX_ENTRY_PLURALS_TYPE_MANY = 0x01000000.or(9.and(0xffff))
+
 private fun appendComplexEntityPlurals(builder: StringBuilder, entry: TypeChunk.Entry, resourceArcs: ResourceArcs) {
     builder.indent().append("<plurals name=").appendWithQuotes(entry.key()).appendLine(">")
     entry.values().forEach { (mapKey, binaryValue) ->
-        builder.indent(2).appendLine("<child mapKey=").appendWithQuotes(mapKey.toString())
-                .append(" type=").appendWithQuotes(binaryValue.type().toString())
-                .append(" data=").appendWithQuotes(binaryValue.data().toString())
-                .append(">").append(binaryValue.toXmlRepresentation(entry, resourceArcs)).appendLine("</child>")
+        builder.indent(2).append("<item quantity=")
+                .appendWithQuotes(when (mapKey) {
+                    COMPLEX_ENTRY_PLURALS_TYPE_OTHER -> "other"
+                    COMPLEX_ENTRY_PLURALS_TYPE_ZERO -> "zero"
+                    COMPLEX_ENTRY_PLURALS_TYPE_ONE -> "one"
+                    COMPLEX_ENTRY_PLURALS_TYPE_TWO -> "two"
+                    COMPLEX_ENTRY_PLURALS_TYPE_FEW -> "few"
+                    COMPLEX_ENTRY_PLURALS_TYPE_MANY -> "many"
+                    else -> error("Unknown plurals type 0x${mapKey.toString(16)}")
+                })
+                .append(">")
+                .append(binaryValue.toXmlRepresentation(entry, resourceArcs)).appendLine("</item>")
     }
 
     builder.indent().appendLine("</plurals>")
@@ -141,7 +158,6 @@ private fun appendComplexEntityAttribute(builder: StringBuilder, entry: TypeChun
         children.forEach { builder.indent(2).appendLine(it) }
         builder.indent().appendLine("</attr>")
     }
-
 }
 
 private fun StringBuilder.indent(times: Int = 1) = also { repeat(times) { this.append("    ") } }
