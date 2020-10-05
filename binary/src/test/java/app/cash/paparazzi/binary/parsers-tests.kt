@@ -4,10 +4,11 @@ import org.junit.Assert
 import org.junit.Test
 
 class ParsersTests {
+    private fun getAndroidRStream() = ResourceIdentifier::class.java.classLoader.getResourceAsStream("android.R.v30.jar")!!
     @Test
     fun testHappyPathEntireResourcesList() {
         val parsedResources = ParsersTests::class.java.classLoader.getResourceAsStream("resources.arsc")?.use {
-            parseResourcesArsc(it)
+            parseResourcesArsc(it, getAndroidRStream())
                     .let { arsc ->
                         arsc.resourcesMap.entries.joinToString(separator = System.lineSeparator()) { (id, valuesMap) ->
                             StringBuilder("- resource ")
@@ -36,7 +37,7 @@ class ParsersTests {
     @Test
     fun testHappyPathValues() {
         val dumpedFileContents = ParsersTests::class.java.classLoader.getResourceAsStream("resources.arsc")?.use {
-            parseResourcesArsc(it)
+            parseResourcesArsc(it, getAndroidRStream())
                     .let { arsc -> valuesDump(arsc, encodedValues(arsc.resourcesMap)) }
                     .entries.joinToString(separator = System.lineSeparator()) { (path, fileContent) ->
                         StringBuilder("path ").append(path)
@@ -57,7 +58,7 @@ class ParsersTests {
     fun testParseXmlFile() {
         val decodedXml = ParsersTests::class.java.classLoader.getResourceAsStream("binary_encoded_launch.xml")?.use { encodedXml ->
             ParsersTests::class.java.classLoader.getResourceAsStream("resources.arsc")?.use { arsc ->
-                parseXmlFile(encodedXml, parseResourcesArsc(arsc))
+                parseXmlFile(encodedXml, parseResourcesArsc(arsc, getAndroidRStream()))
             } ?: error("resources.arsc was not found")
         } ?: error("binary_encoded_launch.xml was not found")
 
@@ -66,5 +67,17 @@ class ParsersTests {
         }
 
         Assert.assertEquals(expect, decodedXml)
+    }
+
+    @Test
+    fun testParseAndroidRClass() {
+        val androidResourcesMap = parseRClass(getAndroidRStream())
+
+        Assert.assertEquals(2547, androidResourcesMap.keys.size)
+        Assert.assertEquals("?android:attr/absListViewStyle", androidResourcesMap[16842858]?.resourceString)
+        Assert.assertEquals("android:absListViewStyle", androidResourcesMap[16842858]?.itemName)
+        Assert.assertEquals("@android:string/ok", androidResourcesMap[17039370]?.resourceString)
+        Assert.assertEquals("@android:style/Animation", androidResourcesMap[16973824]?.resourceString)
+        Assert.assertEquals("android:Animation", androidResourcesMap[16973824]?.itemName)
     }
 }

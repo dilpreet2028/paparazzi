@@ -90,3 +90,5 @@
     * configuration land:
       located under res/values-land/strings.xml
         value land
+
+- resource @null 0x0:
