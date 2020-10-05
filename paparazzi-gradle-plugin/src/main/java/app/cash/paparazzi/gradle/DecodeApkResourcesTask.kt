@@ -67,7 +67,7 @@ open class DecodeApkResourcesTask : DefaultTask() {
         ZipFile(inputApk).use { apkAsZip ->
             val resourcesMap = apkAsZip.getEntry("resources.arsc")
                     .let { apkAsZip.getInputStream(it) }
-                    .use { parseResourcesArsc(it) }
+                    .use { parseResourcesArsc(it, DecodeApkResourcesTask::class.java.classLoader.getResourceAsStream("android.R.v30.jar")!!) }
 
             //copying the compressed binaries from the APK
             for (zipEntry in apkAsZip.entries()) {

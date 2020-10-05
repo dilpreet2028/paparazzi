@@ -39,6 +39,11 @@ import java.io.FileNotFoundException
 import java.io.IOException
 import java.lang.reflect.Modifier
 
+private fun ResourceReference.withoutUnderscoreName() =
+        ResourceReference(namespace, resourceType, name.replace('_', '.'))
+private fun ResourceReference.withUnderscoreName() =
+        ResourceReference(namespace, resourceType, name.replace('.', '_'))
+
 internal class PaparazziCallback(
   private val logger: PaparazziLogger,
   private val packageName: String
@@ -97,7 +102,11 @@ internal class PaparazziCallback(
 
   override fun resolveResourceId(id: Int): ResourceReference? = projectResources[id]
 
-  override fun getOrGenerateResourceId(resource: ResourceReference): Int = resources[resource] ?: 0
+  override fun getOrGenerateResourceId(resource: ResourceReference): Int = (
+          resources[resource] ?:
+          resources[resource.withUnderscoreName()] ?:
+          resources[resource.withoutUnderscoreName()] ?:
+          0)
 
   override fun getParser(layoutResource: ResourceValue): ILayoutPullParser? {
     try {

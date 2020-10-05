@@ -14,6 +14,9 @@ import com.google.devrel.gmscore.tools.apk.arsc.XmlStartElementChunk
 import org.w3c.dom.Node
 import java.io.InputStream
 import java.io.StringWriter
+import java.lang.reflect.Modifier
+import java.net.URLClassLoader
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import javax.xml.parsers.DocumentBuilderFactory
@@ -23,7 +26,8 @@ import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 
-data class ResourceIdentifier(val id: Int, val type: String, val name: String) {
+data class ResourceIdentifier(val id: Int, val packageName: String, val type: String, val name: String) {
+
     val resourceString = if (id == 0)
         "@null"
     else
@@ -32,18 +36,72 @@ data class ResourceIdentifier(val id: Int, val type: String, val name: String) {
                 "attr" -> append("?")
                 "id" -> append("@+")
                 else -> append("@")
-            }.append(type).append("/").append(name)
+            }
+            if (packageName.isNotEmpty()) {
+                append(packageName).append(":")
+            }
+            append(type).append("/").append(name)
         }.toString()
+
+    val itemName = StringBuilder().apply {
+        if (packageName.isNotEmpty()) {
+            append(packageName).append(":")
+        }
+        append(name)
+    }.toString()
 }
 
-data class ResourceArcs(val resourcesChunk: ResourceTableChunk, val resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>) {
+fun parseRClass(androidRInputStream: InputStream): Map<Int, ResourceIdentifier> {
+    val androidRUrl = androidRInputStream.use { source ->
+        Files.createTempFile("paparazzi.android.R", "jar").let {
+            it.toFile().outputStream().use { target ->
+                source.copyTo(target)
+            }
+            it.toUri().toURL()
+        }
+    }
+
+    val classLoaderForAndroidResources = URLClassLoader.newInstance(
+            arrayOf(androidRUrl),
+            ResourceIdentifier::class.java.classLoader)
+    classLoaderForAndroidResources.urLs.forEach { println("android R urls: $it") }
+    val rClass = classLoaderForAndroidResources.loadClass("android.R")
+    val map = mutableMapOf<Int, ResourceIdentifier>()
+    for (resourceClass in rClass.declaredClasses) {
+        val resourceType = resourceClass.simpleName
+
+        for (field in resourceClass.declaredFields) {
+            if (!Modifier.isStatic(field.modifiers)) continue
+
+            // May not be final in library projects.
+            val type = field.type
+            try {
+                if (type == Int::class.javaPrimitiveType) {
+                    val value = field.get(null) as Int
+                    val name = field.name
+                    map[value] = ResourceIdentifier(value, rClass.`package`.name, resourceType, name)
+                } else if (type.isArray && type.componentType == Int::class.javaPrimitiveType) {
+                    // Ignore.
+                } else {
+                    error("Unknown field type in R class: $type")
+                }
+            } catch (e: IllegalAccessException) {
+                error("Malformed R class: ${rClass}. ${e.message}")
+            }
+        }
+    }
+
+    return map
+}
+
+data class ResourceArcs(val androidResources: Map<Int, ResourceIdentifier>, val resourcesChunk: ResourceTableChunk, val resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>) {
     fun getResId(id: Int): ResourceIdentifier? {
-        return resourcesMap.keys.find { it.id == id }
+        return androidResources.getOrElse(id) { resourcesMap.keys.find { it.id == id } }
     }
 }
 
-fun parseResourcesArsc(inputStream: InputStream): ResourceArcs {
-    val tableChunk = BinaryResourceFile.fromInputStream(inputStream).chunks.single() as ResourceTableChunk
+fun parseResourcesArsc(arscFileInputStream: InputStream, androidRInputStream: InputStream): ResourceArcs {
+    val tableChunk = BinaryResourceFile.fromInputStream(arscFileInputStream).chunks.single() as ResourceTableChunk
     val packageChunk = tableChunk.packages.single() as PackageChunk
 
     val allResources = mutableMapOf<ResourceIdentifier, MutableMap<BinaryResourceConfiguration, TypeChunk.Entry>>()
@@ -51,13 +109,15 @@ fun parseResourcesArsc(inputStream: InputStream): ResourceArcs {
     packageChunk.typeChunks.forEach { typeChunk ->
         typeChunk.entries.forEach {
             val resId = calculateResourceId(packageChunk.id, typeChunk.id, it.key)
-            allResources.getOrPut(ResourceIdentifier(resId, typeChunk.typeName, it.value.key())) { mutableMapOf() }[typeChunk.configuration] = it.value
+            allResources.getOrPut(ResourceIdentifier(resId, "", typeChunk.typeName, it.value.key())) { mutableMapOf() }[typeChunk.configuration] = it.value
         }
     }
 
-    allResources[ResourceIdentifier(0, "", "")] = mutableMapOf()
+    allResources[ResourceIdentifier(0, "", "", "")] = mutableMapOf()
 
-    return ResourceArcs(tableChunk, allResources)
+    //now, reading the Android Framework Resources
+    val androidResourcesMap = parseRClass(androidRInputStream)
+    return ResourceArcs(androidResourcesMap, tableChunk, allResources)
 }
 
 fun encodedValues(resourcesMap: Map<ResourceIdentifier, Map<BinaryResourceConfiguration, TypeChunk.Entry>>): Map<Path, List<TypeChunk.Entry>> =
@@ -85,14 +145,14 @@ private const val COMPLEX_ENTRY_FLAG_BIT = 1.shl(17)
 private fun appendComplexEntityStyle(builder: StringBuilder, entry: TypeChunk.Entry, resourceArcs: ResourceArcs) {
     builder.indent().append("<style name=").appendWithQuotes(entry.key())
     if (entry.parentEntry() != 0) {
-        builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.name
+        builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.itemName
                 ?: "resourceId:${entry.parentEntry()}")
     }
     builder.appendLine(">")
 
     entry.values().forEach { (mapKey, binaryValue) ->
         builder.indent(2)
-                .append("<item name=").appendWithQuotes(resourceArcs.getResId(mapKey)?.name
+                .append("<item name=").appendWithQuotes(resourceArcs.getResId(mapKey)?.itemName
                         ?: "resourceId:$mapKey").append(">")
                 .append(binaryValue.toXmlRepresentation(entry, resourceArcs)).appendLine("</item>")
     }
@@ -200,7 +260,7 @@ fun valuesDump(resourceArcs: ResourceArcs, values: Map<Path, List<TypeChunk.Entr
                                             .appendLine("</item>")
                                 }
                                 if (entry.parentEntry() != 0) {
-                                    builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.name
+                                    builder.append(" parent=").appendWithQuotes(resourceArcs.getResId(entry.parentEntry())?.itemName
                                             ?: "")
 
                                 }
@@ -268,18 +328,14 @@ internal fun TypeChunk.Entry.resourceFilePath(): String {
         //the path to a compressed resource file is a string in the string-pool
         parent().getResourceTableChunk().stringPool.getString(value()!!.data())
     } else {
-        val pathBuilder = StringBuilder("res/")
-        pathBuilder.append("values")/*those are always under the 'values' folder*/
-        if (!parent().configuration.isDefault) {
-            pathBuilder
-                    .append('-')
-                    .append(parent().configuration.toString())
-        }
-        pathBuilder
-                .append('/')
-                .append(typeName()).append("s")//plural
-                .append(".xml")
-                .toString()
+        StringBuilder("res/").apply {
+            append("values")/*those are always under the 'values' folder*/
+            if (!parent().configuration.isDefault) {
+                append('-')
+                append(parent().configuration.toString())
+            }
+            append("/values.xml")
+        }.toString()
     }
 }
 
