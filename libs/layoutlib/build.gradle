@@ -26,9 +26,7 @@ task cloneLayoutlib() {
       dir = repoDir
     }
     repo.checkout {
-      // maps to this commit: https://android.googlesource.com/platform/prebuilts/studio/layoutlib/+/1a8ff9cfb0310892adc44d7c0d9e143a286c9aa0
-      // which is based on Android Q and puts us closer to the version released in Android Studio 4.0
-      branch = '1a8ff9c'
+      branch = 'studio-3.4.0'
     }
   }
 
@@ -52,7 +50,7 @@ publishing {
     mavenJava(MavenPublication) {
       groupId = 'app.cash.paparazzi'
       artifactId = 'layoutlib'
-      version = '4.0.0-alpha01-1a8ff9c'
+      version = '3.4.0'
 
       pom {
         name = "layoutlib"
