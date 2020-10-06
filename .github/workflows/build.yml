@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         java-version:
-          - 11
+          - 1.8
 
     steps:
       - name: (Temp) Remove Platforms 30
