@@ -298,7 +298,6 @@ class Paparazzi(
     versionClass
         .getDeclaredField("SDK_INT")
         .apply {
-          isAccessible = true
           modifiersField.setInt(this, modifiers and Modifier.FINAL.inv())
           setInt(null, compileSdkVersion)
         }

@@ -3,7 +3,7 @@ language: android
 dist: trusty
 
 jdk:
-  - openjdk11
+  - openjdk8
 
 android:
   components:
