@@ -274,7 +274,7 @@ class PaparazziPluginTest {
     assertThat(result.task(":preparePaparazziDebugResources")).isNotNull()
     assertThat(result.task(":testDebugUnitTest")).isNotNull()
 
-    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/images")
+    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/debugUnitTest/images")
     val snapshotFile = File(snapshotsDir, "6fca3e0a7f717916b1636195184e9f61c524369b.png")
     assertThat(snapshotFile.exists()).isTrue()
 
@@ -297,7 +297,7 @@ class PaparazziPluginTest {
     assertThat(result.task(":preparePaparazziDebugResources")).isNotNull()
     assertThat(result.task(":testDebugUnitTest")).isNotNull()
 
-    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/images")
+    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/debugUnitTest/images")
     val snapshotFile = File(snapshotsDir, "06eed37f8377a96128efdbfd47e28b24ecac09e6.png")
     assertThat(snapshotFile.exists()).isTrue()
 
@@ -316,7 +316,7 @@ class PaparazziPluginTest {
         .withArguments("testDebug", "--stacktrace")
         .runFixture(fixtureRoot) { build() }
 
-    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/images")
+    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/debugUnitTest/images")
     val snapshots = snapshotsDir.listFiles()
     assertThat(snapshots!!).hasLength(1)
 
@@ -333,7 +333,7 @@ class PaparazziPluginTest {
         .withArguments("testDebug", "--stacktrace")
         .runFixture(fixtureRoot) { build() }
 
-    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/images")
+    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/debugUnitTest/images")
     val snapshotFile = File(snapshotsDir, "6dc7ccef5e1decc563e334e3d809fd68e6f6b122.png")
     assertThat(snapshotFile.exists()).isTrue()
 
@@ -352,7 +352,7 @@ class PaparazziPluginTest {
         .withArguments("testDebug", "--stacktrace")
         .runFixture(fixtureRoot) { build() }
 
-    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/images")
+    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/debugUnitTest/images")
     val snapshots = snapshotsDir.listFiles()
     assertThat(snapshots!!).hasLength(1)
 
@@ -369,7 +369,7 @@ class PaparazziPluginTest {
         .withArguments("testDebug", "--stacktrace")
         .runFixture(fixtureRoot) { build() }
 
-    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/images")
+    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/debugUnitTest/images")
     val snapshots = snapshotsDir.listFiles()
     assertThat(snapshots!!).hasLength(1)
 
@@ -386,7 +386,7 @@ class PaparazziPluginTest {
         .withArguments("testDebug", "--stacktrace")
         .runFixture(fixtureRoot) { build() }
 
-    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/images")
+    val snapshotsDir = File(fixtureRoot, "build/reports/paparazzi/debugUnitTest/images")
     val snapshots = snapshotsDir.listFiles()
     assertThat(snapshots!!).hasLength(1)
 
