@@ -27,6 +27,7 @@ import org.gradle.api.file.Directory
 import org.gradle.api.logging.LogLevel.LIFECYCLE
 import org.gradle.api.plugins.JavaBasePlugin
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.plugin.KotlinBasePluginWrapper
 import java.util.Locale
@@ -45,12 +46,18 @@ class PaparazziPlugin : Plugin<Project> {
         project.dependencies.create("app.cash.paparazzi:paparazzi:$VERSION")
     )
 
+    //Creating an root tasks for executing all snapshot tasks for all variants.
+    //These tasks will depend on all variant-specific tasks.
+    val verifyAllVariant = project.tasks.register("verifyPaparazzi")
+    val recordAllVariant = project.tasks.register("recordPaparazzi")
+
     if (hasLibraryPlugin) {
       project.extensions.getByType(LibraryExtension::class.java)
           .libraryVariants.all {
               setupPrepareTask(project, it, it.unitTestVariant,
                   it.mergeResourcesProvider, it.mergeResourcesProvider.flatMap { it.outputDir },
-                  it.mergeAssetsProvider, it.mergeAssetsProvider.flatMap { it.outputDir }
+                  it.mergeAssetsProvider, it.mergeAssetsProvider.flatMap { it.outputDir },
+                  recordAllVariant, verifyAllVariant
               )
           }
     } else {
@@ -66,6 +73,7 @@ class PaparazziPlugin : Plugin<Project> {
               setupPrepareTask(project, it, it.unitTestVariant,
                   decodeApkTask, decodeApkTask.flatMap { it.decodedResourcesDirectory },
                   decodeApkTask, decodeApkTask.flatMap { it.decodedAssetsDirectory },
+                  recordAllVariant, verifyAllVariant
               )
           }
     }
@@ -73,7 +81,8 @@ class PaparazziPlugin : Plugin<Project> {
 
   private fun setupPrepareTask(project: Project, variant: BaseVariant, unitTestVariant: UnitTestVariant,
                                resourcesTask: Provider<out Task>, resourcesProvider: Provider<Directory>,
-                               assetsTask: Provider<out Task>, assetsProvider: Provider<Directory>) {
+                               assetsTask: Provider<out Task>, assetsProvider: Provider<Directory>,
+                               recordAllVariant: TaskProvider<out Task>, verifyAllVariant: TaskProvider<out Task>) {
     val variantSlug = variant.name.capitalize(Locale.US)
     val reportOutputFolder = project.layout.buildDirectory.dir("reports/paparazzi/$variantSlug")
 
@@ -101,7 +110,13 @@ class PaparazziPlugin : Plugin<Project> {
     }
 
     val recordTaskProvider = project.tasks.register("recordPaparazzi${variantSlug}")
+    recordAllVariant.configure {
+      it.dependsOn(recordTaskProvider)
+    }
     val verifyTaskProvider = project.tasks.register("verifyPaparazzi${variantSlug}")
+    verifyAllVariant.configure {
+      it.dependsOn(verifyTaskProvider)
+    }
 
     val testTaskProvider = project.tasks.named("test${testVariantSlug}", Test::class.java) { test ->
       test.systemProperties["paparazzi.test.resources"] =
