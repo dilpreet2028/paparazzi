@@ -34,7 +34,7 @@ class HtmlReportWriterTest {
 
   @Test
   fun happyPath() {
-    val htmlReportWriter = HtmlReportWriter("run_one", temporaryFolder.root)
+    val htmlReportWriter = HtmlReportWriter("run_one", temporaryFolder.root, isRecording = false)
     htmlReportWriter.use {
       val frameHandler = htmlReportWriter.newFrameHandler(
           Snapshot(

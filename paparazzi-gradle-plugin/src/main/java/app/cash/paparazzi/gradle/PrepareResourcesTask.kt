@@ -16,7 +16,6 @@
 package app.cash.paparazzi.gradle
 
 import com.android.build.gradle.BaseExtension
-import com.android.build.gradle.api.BaseVariant
 import com.android.ide.common.symbols.getPackageNameFromManifest
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
@@ -47,6 +46,8 @@ open class PrepareResourcesTask : DefaultTask() {
   @get:OutputFile
   internal val paparazziResources: RegularFileProperty = project.objects.fileProperty()
 
+  @get:Input
+  internal var paparazziMode: String = "ignore"
 
   @TaskAction
   fun writeResourcesFile() {
@@ -66,6 +67,8 @@ open class PrepareResourcesTask : DefaultTask() {
           it.write(mergeAssetsOutput.get().asFile.path)
           it.newLine()
           it.write(paparazziReportOutput)
+          it.newLine()
+          it.write(paparazziMode)
           it.newLine()
         }
   }

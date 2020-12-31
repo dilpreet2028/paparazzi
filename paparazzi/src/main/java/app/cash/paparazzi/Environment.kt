@@ -24,7 +24,9 @@ data class Environment(
   val assetsDir: String,
   val packageName: String,
   val compileSdkVersion: Int,
-  val reportFolder: String)
+  val reportFolder: String,
+  val paparazziMode: String,
+)
 
 @Suppress("unused")
 fun androidHome() = System.getenv("ANDROID_SDK_ROOT")
@@ -43,7 +45,8 @@ fun detectEnvironment(): Environment {
       assetsDir = configLines[4],
       packageName = configLines[0],
       compileSdkVersion = configLines[2].toInt(),
-      reportFolder = configLines[5]
+      reportFolder = configLines[5],
+      paparazziMode = configLines[6]
   )
 }
 

@@ -60,6 +60,7 @@ def generateTestConfig = tasks.register("generateTestConfig") {
       writer.writeLine("${androidHome}/platforms/android-28/")
       writer.writeLine(".")
       writer.writeLine(".")
+      writer.writeLine("record")
     }
   }
 }

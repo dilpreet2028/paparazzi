@@ -60,7 +60,8 @@ import javax.imageio.ImageIO
 internal class HtmlReportWriter(
   private val runName: String = defaultRunName(),
   private val rootDirectory: File = File("build/reports/paparazzi"),
-  snapshotRootDirectory: File = File("src/test/snapshots")
+  snapshotRootDirectory: File = File("src/test/snapshots"),
+  private val isRecording: Boolean
 ) : SnapshotHandler {
   private val runsDirectory: File = File(rootDirectory, "runs")
   private val imagesDirectory: File = File(rootDirectory, "images")
@@ -70,9 +71,6 @@ internal class HtmlReportWriter(
   private val goldenVideosDirectory = File(snapshotRootDirectory, "videos")
 
   private val shots = mutableListOf<Snapshot>()
-
-  private val isRecording: Boolean =
-    System.getProperty("paparazzi.test.record")?.toBoolean() == true
 
   init {
     runsDirectory.mkdirs()

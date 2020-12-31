@@ -54,7 +54,7 @@ class PaparazziPlugin : Plugin<Project> {
     if (hasLibraryPlugin) {
       project.extensions.getByType(LibraryExtension::class.java)
           .libraryVariants.all {
-              setupPrepareTask(project, it, it.unitTestVariant,
+              setupPaparazziTasks(project, it, it.unitTestVariant,
                   it.mergeResourcesProvider, it.mergeResourcesProvider.flatMap { it.outputDir },
                   it.mergeAssetsProvider, it.mergeAssetsProvider.flatMap { it.outputDir },
                   recordAllVariant, verifyAllVariant
@@ -70,7 +70,7 @@ class PaparazziPlugin : Plugin<Project> {
               ) { task ->
                 task.apkDirectory.set( it.packageApplicationProvider.flatMap { it.outputDirectory })
               }
-              setupPrepareTask(project, it, it.unitTestVariant,
+              setupPaparazziTasks(project, it, it.unitTestVariant,
                   decodeApkTask, decodeApkTask.flatMap { it.decodedResourcesDirectory },
                   decodeApkTask, decodeApkTask.flatMap { it.decodedAssetsDirectory },
                   recordAllVariant, verifyAllVariant
@@ -79,35 +79,51 @@ class PaparazziPlugin : Plugin<Project> {
     }
   }
 
-  private fun setupPrepareTask(project: Project, variant: BaseVariant, unitTestVariant: UnitTestVariant,
-                               resourcesTask: Provider<out Task>, resourcesProvider: Provider<Directory>,
-                               assetsTask: Provider<out Task>, assetsProvider: Provider<Directory>,
-                               recordAllVariant: TaskProvider<out Task>, verifyAllVariant: TaskProvider<out Task>) {
-    val variantSlug = variant.name.capitalize(Locale.US)
-    val reportOutputFolder = project.layout.buildDirectory.dir("reports/paparazzi/$variantSlug")
-
-    val writeResourcesTask = project.tasks.register(
-            "preparePaparazzi${variantSlug}Resources", PrepareResourcesTask::class.java
+  private fun createResourcesWriterTask(project: Project, variantSlug: String, mode: String,
+                                        resourcesTask: Provider<out Task>, resourcesProvider: Provider<Directory>,
+                                        assetsTask: Provider<out Task>, assetsProvider: Provider<Directory>,
+                                        reportOutputFolder: Provider<Directory>): TaskProvider<PrepareResourcesTask> {
+    return project.tasks.register(
+            "preparePaparazzi${variantSlug}Resources${mode.capitalize(Locale.ROOT)}", PrepareResourcesTask::class.java
     ) { task ->
       task.dependsOn(resourcesTask)
       task.mergeResourcesOutput.set(resourcesProvider)
       task.dependsOn(assetsTask)
       task.mergeAssetsOutput.set(assetsProvider)
-      task.paparazziResources.set(project.layout.buildDirectory.file("intermediates/paparazzi/${variant.name}/resources.txt"))
+      task.paparazziResources.set(project.layout.buildDirectory.file("intermediates/paparazzi/${variantSlug}/resources.txt"))
       task.paparazziReportOutput = reportOutputFolder.get().asFile.absolutePath
+      task.paparazziMode = mode
     }
+  }
 
-    val testVariantSlug = unitTestVariant.name.capitalize(Locale.US)
-
-    project.plugins.withType(JavaBasePlugin::class.java) {
-      project.tasks.named("compile${testVariantSlug}JavaWithJavac")
-          .configure { it.dependsOn(writeResourcesTask) }
+  private fun configureTestTask(project: Project, testVariantSlug: String,
+                                paparazziResourcesTask: TaskProvider<PrepareResourcesTask>,
+                                reportOutputFolder: Provider<Directory>):
+          TaskProvider<Test> {
+    return project.tasks.named("test${testVariantSlug}", Test::class.java) { test ->
+      test.systemProperties["paparazzi.test.resources"] =
+              paparazziResourcesTask.flatMap { it.paparazziResources.asFile }.get().path
+      //We're adding the report folder to the test-task's outputs to ensure
+      //it is stored in Gradle's cache.
+      test.outputs.dir(reportOutputFolder)
+      test.dependsOn(paparazziResourcesTask)
+      //ensuring that the test task knows about the resources output
+      test.inputs.file(paparazziResourcesTask.flatMap { it.paparazziResources.asFile })
+      test.doLast {
+        val uri = reportOutputFolder.get().asFile.toPath().resolve("index.html").toUri()
+        project.logger.log(LIFECYCLE, "See the Paparazzi report at: $uri")
+      }
     }
+  }
 
-    project.plugins.withType(KotlinBasePluginWrapper::class.java) {
-      project.tasks.named("compile${testVariantSlug}Kotlin")
-          .configure { it.dependsOn(writeResourcesTask) }
-    }
+  private fun setupPaparazziTasks(project: Project, variant: BaseVariant, unitTestVariant: UnitTestVariant,
+                                  resourcesTask: Provider<out Task>, resourcesProvider: Provider<Directory>,
+                                  assetsTask: Provider<out Task>, assetsProvider: Provider<Directory>,
+                                  recordAllVariant: TaskProvider<out Task>, verifyAllVariant: TaskProvider<out Task>) {
+    val variantSlug = variant.name.capitalize(Locale.US)
+    val reportOutputFolder = project.layout.buildDirectory.dir("reports/paparazzi/$variantSlug")
+    val writeResourcesTask = createResourcesWriterTask(project, variantSlug, getPaparazziMode(project.rootProject),
+            resourcesTask, resourcesProvider, assetsTask, assetsProvider, reportOutputFolder)
 
     val recordTaskProvider = project.tasks.register("recordPaparazzi${variantSlug}")
     recordAllVariant.configure {
@@ -118,25 +134,31 @@ class PaparazziPlugin : Plugin<Project> {
       it.dependsOn(verifyTaskProvider)
     }
 
-    val testTaskProvider = project.tasks.named("test${testVariantSlug}", Test::class.java) { test ->
-      test.systemProperties["paparazzi.test.resources"] =
-          writeResourcesTask.flatMap { it.paparazziResources.asFile }.get().path
-      //We're adding the report folder to the test-task's outputs to ensure
-      //it is stored in Gradle's cache.
-      test.outputs.dir(reportOutputFolder)
-      test.doFirst {
-        test.systemProperties["paparazzi.test.record"] =
-            project.gradle.taskGraph.hasTask(recordTaskProvider.get())
-        test.systemProperties["paparazzi.test.verify"] =
-            project.gradle.taskGraph.hasTask(verifyTaskProvider.get())
-      }
-      test.doLast {
-        val uri = reportOutputFolder.get().asFile.toPath().resolve("index.html").toUri()
-        project.logger.log(LIFECYCLE, "See the Paparazzi report at: $uri")
-      }
+    val testVariantSlug = unitTestVariant.name.capitalize(Locale.US)
+
+    when {
+      project.plugins.hasPlugin(JavaBasePlugin::class.java) ->
+        project.tasks.named("compile${testVariantSlug}JavaWithJavac")
+      project.plugins.hasPlugin(KotlinBasePluginWrapper::class.java) ->
+        project.tasks.named("compile${testVariantSlug}Kotlin")
+      else -> error("Currently, only supporting Java or Kotlin projects.")
+    }.configure {
+      it.dependsOn(writeResourcesTask)
     }
 
-    recordTaskProvider.configure { it.dependsOn(testTaskProvider) }
-    verifyTaskProvider.configure { it.dependsOn(testTaskProvider) }
+    val testTaskProvider = configureTestTask(project, testVariantSlug, writeResourcesTask, reportOutputFolder)
+    recordTaskProvider.configure {
+      it.dependsOn(testTaskProvider)
+    }
+
+    verifyTaskProvider.configure {
+      it.dependsOn(testTaskProvider)
+    }
+  }
+
+  private fun getPaparazziMode(project: Project) = when {
+    project.hasProperty("PAPARAZZI_VERIFY") -> "verify"
+    project.hasProperty("PAPARAZZI_RECORD") -> "record"
+    else -> "ignore"
   }
 }

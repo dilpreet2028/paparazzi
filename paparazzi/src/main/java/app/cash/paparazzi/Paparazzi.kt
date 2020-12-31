@@ -43,6 +43,7 @@ import com.android.layoutlib.bridge.BridgeRenderSession
 import com.android.layoutlib.bridge.impl.RenderAction
 import com.android.layoutlib.bridge.impl.RenderSessionImpl
 import com.android.tools.layoutlib.java.System_Delegate
+import org.junit.Assume
 import org.junit.rules.TestRule
 import org.junit.runner.Description
 import org.junit.runners.model.Statement
@@ -108,6 +109,8 @@ class Paparazzi(
   }
 
   fun prepare(description: Description) {
+    Assume.assumeFalse(shouldIgnoreRun(environment))
+
     forcePlatformSdkVersion(environment.compileSdkVersion)
 
     val layoutlibCallback = PaparazziCallback(logger, environment.packageName)
@@ -414,14 +417,37 @@ class Paparazzi(
     /** The choreographer doesn't like 0 as a frame time, so start an hour later. */
     internal val TIME_OFFSET_NANOS = TimeUnit.HOURS.toNanos(1L)
 
-    private val isVerifying: Boolean =
-      System.getProperty("paparazzi.test.verify")?.toBoolean() == true
+    private fun determineHandler(environment: Environment): SnapshotHandler = when (environment.paparazziMode) {
+      "verify" -> SnapshotVerifier()
+      "record" -> HtmlReportWriter(rootDirectory = File(environment.reportFolder), isRecording = "record" == environment.paparazziMode)
+      else -> NoOpSnapshotHandler()
+    }
 
-    private fun determineHandler(environment: Environment): SnapshotHandler =
-      if (isVerifying) {
-        SnapshotVerifier()
-      } else {
-        HtmlReportWriter(rootDirectory = File(environment.reportFolder))
-      }
+    private fun shouldIgnoreRun(environment: Environment): Boolean = when (environment.paparazziMode) {
+      "verify",
+      "record" -> false
+      else -> true
+    }
+  }
+}
+
+//this is never called
+private class NoOpSnapshotHandler : SnapshotHandler {
+  override fun newFrameHandler(snapshot: Snapshot, frameCount: Int, fps: Int): SnapshotHandler.FrameHandler {
+    return NoOpFrameHandler()
+  }
+
+  override fun close() {
+    //nothing to do here
+  }
+}
+
+private class NoOpFrameHandler: SnapshotHandler.FrameHandler {
+  override fun handle(image: BufferedImage) {
+    //nothing to do here
+  }
+
+  override fun close() {
+    //nothing to do here
   }
 }
