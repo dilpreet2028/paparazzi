@@ -42,10 +42,6 @@ class PaparazziPlugin : Plugin<Project> {
       "The Android Gradle library/application plugin must be applied before the Paparazzi plugin."
     }
 
-    project.configurations.getByName("testImplementation").dependencies.add(
-        project.dependencies.create("app.cash.paparazzi:paparazzi:$VERSION")
-    )
-
     //Creating an root tasks for executing all snapshot tasks for all variants.
     //These tasks will depend on all variant-specific tasks.
     val verifyAllVariant = project.tasks.register("verifyPaparazzi")
