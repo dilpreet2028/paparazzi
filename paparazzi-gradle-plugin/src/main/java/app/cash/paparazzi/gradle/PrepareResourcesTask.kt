@@ -103,6 +103,6 @@ open class PrepareResourcesTask : DefaultTask() {
   }
 
   companion object {
-    const val DEFAULT_COMPILE_SDK_VERSION = 28
+    const val DEFAULT_COMPILE_SDK_VERSION = 29
   }
 }
